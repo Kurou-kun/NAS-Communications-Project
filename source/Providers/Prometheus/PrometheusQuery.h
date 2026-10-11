@@ -5,6 +5,7 @@
 #include <atomic>
 #include <mutex>
 #include <map>
+#include <set>
 #include "Query/IQuery.h"
 
 namespace NASCP {
@@ -27,35 +28,83 @@ namespace NASCP {
                 // scrape config adds them.
                 void SetDeviceLabel(const std::string& label);
 
+                // Filesystem mountpoint the drive_* metrics describe.
+                void SetMount(const std::string& mount);
+
+                // chip=~ regex for the hwmon sensor cpu_temp reads. Prometheus regexes
+                // are fully anchored, so a bare "coretemp.*" never matches a chip
+                // actually named "platform_coretemp_0".
+                void SetTempChip(const std::string& chip);
+
+                // How often the background poller re-queries Prometheus, in ms.
+                void SetPollInterval(int ms);
+
+                // Stops the poller without waiting for it. Used on shutdown so the
+                // pollers wind down in parallel rather than one join at a time.
+                void Stop() override;
+
             private:
+                // One network round trip each, issued only when some measure has
+                // actually asked for a metric in that group.
+                enum class Group {
+                    Raw,          // up, memory, swap, boot time, load - one selector
+                    CpuUsage,
+                    CpuClock,
+                    CpuTemp,
+                    NetRates,     // receive + transmit per second
+                    NetTotals,    // receive + transmit counters
+                    NetSpeed,
+                    DiskRates,    // read + written per second
+                    DiskTotals,   // read + written counters
+                    Filesystem,   // size + avail -> used/free/percent
+                    Custom
+                };
+                static Group GroupOf(Query::DataType data);
+
                 std::string endpoint_;
                 bool proxy_ = false;
                 void* rm_ = nullptr;
                 int debugLevel_ = 0;
                 std::string deviceLabel_ = "job";
+                std::string mount_ = "/";
+                std::string tempChip_ = ".*coretemp.*|.*k10temp.*|.*zenpower.*|.*pci.*";
+                std::atomic<int> pollIntervalMs_{ 2000 };
 
                 std::map<Query::DataType, double> cache_;
                 std::wstring stringCache_;
                 mutable std::mutex cacheMutex_;
 
-                std::chrono::steady_clock::time_point lastFetch_;
-                std::mutex fetchMutex_;
+                // What the skin has asked for, and for whom.
+                std::set<Group> requested_;
+                std::string device_;
+                std::string customQuery_;
+                std::mutex stateMutex_;
 
-                std::thread workerThread_;
-                std::atomic<bool> requestPending_{ false };
-                std::atomic<bool> shutdown_{ false };
+                std::thread poller_;
+                std::atomic<bool> running_{ false };
+                std::atomic<bool> started_{ false };
+                // False until a gather completes without error; every read returns
+                // -1 while it is false, so "cannot reach Prometheus" never looks
+                // like a genuine zero.
+                std::atomic<bool> healthy_{ false };
 
-                void AsyncFetch(const std::string& device);
+                void EnsurePoller();
+                void PollLoop();
+                void GatherOnce();
 
-                std::string BuildRawQuery(const std::string& device) const;
+                std::string Selector(const std::string& device, const std::string& extra = "") const;
                 std::string HttpGet(const std::string& path) const;
+                std::string Query(const std::string& promql) const;
                 std::string UrlEncode(const std::string& value) const;
 
-                void ParseRawResponse(const std::string& json, const std::string& device);
+                void ParseRawResponse(const std::string& json);
+                std::map<std::string, double> ParseByMetricName(const std::string& json) const;
 
                 double ParseSingleValue(const std::string& json) const;
                 double GetCached(Query::DataType data) const;
                 std::wstring FormatUptime(double seconds) const;
+
+                void Store(Query::DataType data, double value);
             };
 
         } // namespace Prometheus

@@ -34,7 +34,7 @@ namespace NASCP {
             Net_DownloadTotal,
             Net_UploadTotal,
 
-            // Drive (/ only)
+            // Drive (the mountpoint named by Mount=, default /)
             Drive_UsedPercent,
             Drive_Used,
             Drive_Free,
@@ -55,6 +55,9 @@ namespace NASCP {
             virtual std::wstring GetString(const std::string& device, DataType data, const std::string& customQuery = "") = 0;
             virtual bool IsAvailable() = 0;
             virtual void SetEndpoint(const std::string& endpoint, bool proxy = false) = 0;
+
+            // Ask any background work to wind down. Must not block.
+            virtual void Stop() {}
         };
 
     } // namespace Query

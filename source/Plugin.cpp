@@ -89,15 +89,26 @@ void Reload(void* data, void* rm, double* maxValue) {
     // node_exporter is guaranteed to carry; anything else has to come from the
     // scrape config.
     measure->deviceLabel = Str::ToLower(Str::Trim(Str::ToNarrow(RmReadString(rm, L"DeviceLabel", L"job", TRUE))));
+    // Which filesystem the drive_* metrics describe. "/" is the root filesystem,
+    // which on a NAS is the boot pool rather than the data pools.
+    measure->mount = Str::Trim(Str::ToNarrow(RmReadString(rm, L"Mount", L"/", TRUE)));
+    measure->tempChip = Str::Trim(Str::ToNarrow(RmReadString(rm, L"TempChip", L".*coretemp.*|.*k10temp.*|.*zenpower.*|.*pci.*", TRUE)));
+    measure->pollInterval = static_cast<int>(RmReadDouble(rm, L"PollInterval", 2000));
     std::string dataStr = Str::ToLower(Str::Trim(Str::ToNarrow(RmReadString(rm, L"Data", L"status", TRUE))));
 
     DEBUG_INFO(rm, measure->debugLevel,
         (L"URL=" + Str::ToWide(rawUrl) +
             L" Device=" + Str::ToWide(measure->device) +
             L" DeviceLabel=" + Str::ToWide(measure->deviceLabel) +
+            L" Mount=" + Str::ToWide(measure->mount) +
             L" Type=" + Str::ToWide(measure->type) +
             L" Data=" + Str::ToWide(dataStr) +
             L" Query=" + Str::ToWide(measure->customQuery)).c_str());
+
+    if (measure->device.empty() && measure->customQuery.empty())
+        DEBUG_ERROR(rm, measure->debugLevel,
+            L"Device= is empty - every query will match nothing. Set it to the "
+            L"value of the DeviceLabel= label (default label: job).");
 
     measure->url = NASCP::Query::Builder::NormalizeEndpoint(rawUrl, measure->type, measure->proxy);
 
@@ -114,12 +125,15 @@ void Reload(void* data, void* rm, double* maxValue) {
         DEBUG_INFO(rm, measure->debugLevel, L"Custom query override active");
     }
 
-    measure->query = NASCP::Query::Builder::GetOrCreate(measure->type, measure->url, measure->device, measure->proxy);
+    measure->query = NASCP::Query::Builder::GetOrCreate(measure->type, measure->url, measure->device, measure->mount, measure->proxy);
 
     if (measure->query) {
         if (auto* pq = dynamic_cast<NASCP::Providers::Prometheus::PrometheusQuery*>(measure->query)) {
             pq->SetDebug(rm, measure->debugLevel);
             pq->SetDeviceLabel(measure->deviceLabel);
+            pq->SetMount(measure->mount);
+            pq->SetTempChip(measure->tempChip);
+            pq->SetPollInterval(measure->pollInterval);
         }
 
         DEBUG_INFO(rm, measure->debugLevel,

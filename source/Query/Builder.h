@@ -9,17 +9,21 @@ namespace NASCP {
 
         class Builder {
         public:
-            // One client per endpoint AND device: the client owns a value cache
-            // keyed only by metric, so sharing it between devices would make
-            // them overwrite each other's readings.
-            static IQuery* GetOrCreate(const std::string& type, const std::string& normalizedEndpoint, const std::string& device, bool proxy = false);
+            // One client per endpoint + device + mount. The client owns a value
+            // cache keyed only by metric, so sharing it between devices would make
+            // them overwrite each other's readings; and since every measure pushes
+            // its own Mount= on reload, two measures of the same host with
+            // different mounts would otherwise fight over one client's setting.
+            static IQuery* GetOrCreate(const std::string& type, const std::string& normalizedEndpoint,
+                                       const std::string& device, const std::string& mount, bool proxy = false);
             static std::string NormalizeEndpoint(const std::string& device, const std::string& type, bool proxy = false);
             static void Shutdown();
 
         private:
-            static std::unordered_map<std::string, std::unique_ptr<IQuery>> clients_;
+            // Accessor rather than a static member: the map must never be
+            // destroyed at process detach. See Builder.cpp.
+            static std::unordered_map<std::string, std::unique_ptr<IQuery>>& Clients();
 
-            static std::string ResolveHost(const std::string& host);
             static std::string DefaultPort(const std::string& type);
         };
 

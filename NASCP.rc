@@ -15,7 +15,7 @@
 // itself (32-bit) and Rainmeter reads it as the wrong architecture.
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,0,3,0
+ FILEVERSION 1,1,1,0
  PRODUCTVERSION 4,5,26,3894
  FILEFLAGSMASK 0x17L
 #ifdef _DEBUG
@@ -33,7 +33,7 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Kurou"
             VALUE "FileDescription", "Rainmeter plugin for remote monitoring via Prometheus"
-            VALUE "FileVersion", "1.0.3.0"
+            VALUE "FileVersion", "1.1.1.0"
             VALUE "InternalName", "NASCP"
             VALUE "OriginalFilename", "NASCP.dll"
             VALUE "LegalCopyright", "Copyright (c) 2026 - Kurou"

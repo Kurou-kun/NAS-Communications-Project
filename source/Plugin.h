@@ -12,6 +12,9 @@ namespace NASCP {
         std::string url;
         std::string device;
         std::string deviceLabel;
+        std::string mount;
+        std::string tempChip;
+        int pollInterval = 2000;
         std::string type;
         Query::DataType dataType;
         std::string customQuery;
