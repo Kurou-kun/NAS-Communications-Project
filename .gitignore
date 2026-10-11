@@ -370,3 +370,19 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# --- NASCP: the project and version resource ARE the build, keep them tracked ---
+!NASCP.vcxproj
+!NASCP.rc
+
+# Build output and packaged releases are not source
+dist/
+build/
+x64/
+Win32/
+.vs/
+
+# The Rainmeter import libraries are vendored SDK files, not build output
+!external/rainmeter/x86/
+!external/rainmeter/x86/Rainmeter.lib
+!external/rainmeter/x64/Rainmeter.lib
