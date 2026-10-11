@@ -97,18 +97,29 @@ source/
 
 ## Installation
 
-### Download Prebuilt Plugin
+### Install the .rmskin (recommended)
 
-1. Open the GitHub repository
-2. Navigate to **Releases**
-3. Download the latest `NASCP.dll`
-4. Place the file into the Rainmeter plugins directory:
+1. Download `NASCP_<version>.rmskin` from **Releases**
+2. Open it - Rainmeter's skin installer does the rest: it installs the correct
+   architecture of the plugin, keeps a copy in `@Vault`, and installs the
+   `NASCP` example skin
+3. The installer closes and restarts Rainmeter itself
+
+The installer compares the DLL's **FileVersion resource**, not the file name.
+Release 1.0.0 shipped a DLL with no version resource at all, which Rainmeter
+reads as `0.0.0.0`.
+
+### Manual install
+
+Rename the `.rmskin` to `.zip` and copy `Plugins\64bit\NASCP.dll` (or `32bit`)
+into:
 
 ```
 %APPDATA%\Rainmeter\Plugins\
 ```
 
-5. Refresh Rainmeter
+Close Rainmeter first, or it will be holding the old DLL open and the copy
+will fail.
 
 ---
 
@@ -116,41 +127,35 @@ source/
 
 ### Requirements
 
-- Visual Studio 2022
+- Visual Studio 2022 or newer with the **Desktop development with C++** workload
 - Windows 10 / 11 SDK
-- [Rainmeter Plugin SDK](https://github.com/rainmeter/rainmeter-plugin-sdk)
+
+The Rainmeter API header and both import libraries are vendored under
+`external/rainmeter/`, so there is nothing else to download.
 
 ### Build Steps
 
-Clone the repository:
-
 ```
-git clone https://github.com/Kurou-kun/NASCommunicationsProject.git
-cd NASCommunicationsProject
-```
+git clone https://github.com/Kurou-kun/NAS-Communications-Project.git
+cd NAS-Communications-Project
 
-Place the Rainmeter SDK files into:
-
-```
-external/rainmeter/RainmeterAPI.h
-external/rainmeter/Rainmeter.lib
+msbuild NASCP.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild NASCP.vcxproj /p:Configuration=Release /p:Platform=Win32
 ```
 
-Open `NAS Communications Project.sln` in Visual Studio, set configuration to `Release x64` and build.
+The DLLs land in `x64\Release\NASCP.dll` and `Win32\Release\NASCP.dll`. They
+link the static CRT, so no Visual C++ redistributable is needed on the target
+machine.
 
-The compiled plugin will be located in:
-
-```
-x64\Release\NASCP.dll
-```
-
-Copy the DLL into:
+To build the installable package:
 
 ```
-%APPDATA%\Rainmeter\Plugins\
+.\tools\build-package.ps1       # -> dist\NASCP_<version>.rmskin
 ```
 
-and refresh Rainmeter.
+The script refuses to package DLLs whose FileVersion or architecture marker
+disagrees with `package/RMSKIN.ini`, so bump `NASCP.rc` and `RMSKIN.ini`
+together on anything that ships.
 
 ---
 
@@ -195,10 +200,69 @@ URL=192.168.1.50:9090
 
 ### Device
 
-The Prometheus job name for the target device.
+Which machine to read. The value is matched against the label named by
+`DeviceLabel=`.
 
 ```
 Device=myserver
+```
+
+### DeviceLabel
+
+The Prometheus label `Device=` is matched against. Default `job`, the only
+label stock node_exporter is guaranteed to carry. Use another one if your
+scrape config labels targets itself.
+
+```
+DeviceLabel=job       ; default - matches job="myserver"
+DeviceLabel=device    ; matches device="myserver"
+```
+
+> **If you label targets `device`, mind the collision.** node_exporter already
+> uses `device` for NICs, disks and filesystems. Prometheus keeps the target's
+> label and renames the metric's to `exported_device`; the plugin follows that
+> rename automatically when `DeviceLabel=device`, so the interface filter keeps
+> excluding `lo`, `docker*` and `veth*`.
+
+### Mount
+
+Which filesystem the `drive_*` metrics describe. Default `/`.
+
+On a NAS, `/` is the boot pool - point this at a data pool instead:
+
+```
+Mount=/
+Mount=/mnt/Data/Torrents
+```
+
+A host can be read at several mountpoints at once; each `Device` + `Mount`
+pair is tracked separately.
+
+### TempChip
+
+`chip=~` regex selecting the hwmon sensor `cpu_temp` reads. Default
+`.*coretemp.*|.*k10temp.*|.*zenpower.*|.*pci.*`.
+
+Prometheus regexes are **fully anchored**, so `coretemp.*` does not match a
+chip actually named `platform_coretemp_0` - hence the leading `.*`. To find
+what your host exposes, query `node_hwmon_temp_celsius` and read the `chip`
+label.
+
+```
+TempChip=.*coretemp.*
+```
+
+### PollInterval
+
+How often the plugin re-queries Prometheus, in milliseconds. Default `2000`,
+minimum `250`.
+
+The skin's own `Update=` controls how often the *meter* reads the cached
+value; this controls how often the network is touched. Scrape intervals are
+typically 15s, so polling much faster mostly costs requests.
+
+```
+PollInterval=5000
 ```
 
 ### Type
@@ -245,7 +309,35 @@ Debug=1    ; Full trace
 
 ---
 
+## Reading -1
+
+**`-1` means "no reading", never a value.** It is returned when Prometheus
+cannot be reached, when it answers with an HTTP error, or when the query comes
+back empty because the exporter does not publish that metric. Zero is reserved
+for genuine zeros - an idle NIC reads `0`, an unreachable host reads `-1`.
+
+`status` is the one to watch: `1` scraped and up, `0` scraped and down, `-1`
+Prometheus itself is unreachable.
+
+```ini
+[MeasureStatus]
+Measure=Plugin
+Plugin=NASCP
+URL=prometheus.example.com
+Device=myserver
+Proxy=1
+Data=status
+Substitute="1":"up","0":"down","-1":"unreachable"
+```
+
+---
+
 ## Supported Data Values
+
+Every value is node_exporter's raw base unit - **Hz**, **bytes**, **bytes per
+second**, **seconds**, **degrees C**, percentages as `0-100`. The plugin scales
+nothing, so let the skin do it: `AutoScale=1` for byte counts, and a `Calc`
+measure dividing by 1e6 to turn `cpu_clock` into MHz.
 
 ### General
 
@@ -291,7 +383,7 @@ Debug=1    ; Full trace
 | `net_downloadtotal` | Total bytes received | bytes |
 | `net_uploadtotal` | Total bytes sent | bytes |
 
-### Drive (/ partition)
+### Drive (the filesystem named by `Mount=`)
 
 | Value | Description | Unit |
 |-------|-------------|------|
@@ -332,31 +424,41 @@ command:
 
 ## Backend Behavior
 
-All measures pointing to the same endpoint share a **single HTTP client instance**.
+Each **endpoint + device + mount** combination gets its own client, each with
+its own background poll thread and value cache. Measures never touch the
+network: they read the cache and return immediately, so a slow or unreachable
+Prometheus can never stall Rainmeter's update loop.
 
-This means:
+Only the metric groups some measure has actually asked for are queried. A skin
+reading CPU and RAM costs two HTTP requests per poll; reading everything costs
+twelve. Counters and filesystem size/avail are batched into single queries
+where PromQL allows it - `rate()` drops the `__name__` label, so rates cannot
+be batched the same way.
 
-- HTTP requests fire once per update cycle per endpoint
-- multiple Rainmeter measures reuse the same cached values
-- performance overhead remains minimal regardless of measure count
-
-The polling frequency follows the **Rainmeter skin update rate**.
-A minimum interval of **100ms** is enforced to prevent abuse.
+Polling runs at `PollInterval=` (default 2000ms) independent of the skin's
+`Update=`, which only controls how often meters re-read the cache. HTTP
+timeouts are 3s per phase.
 
 ---
 
 ## Known Limitations
 
-- `net_speed` returns `0` when node_exporter runs inside Docker — use bare metal installation for full NIC speed support
-- Drive metrics refer to the `/` partition only (v1.0.0)
-- CPU temperature uses `coretemp.*` (Intel) and `pci.*` (AMD) chip selectors automatically
+- `net_speed` reports what node_exporter sees. Inside Docker that is the
+  container's veth, not the host NIC - run node_exporter on the host with
+  `--path.rootfs` for real link speeds
+- The first poll after a skin loads has not returned yet, so measures read
+  `-1` for a moment
+- A metric group is only queried once some measure has asked for it, so a
+  newly added measure picks up its first value one poll later
+- Only `prometheus` is implemented for `Type=`; the provider interface exists
+  for others but nothing else ships
 
 ---
 
 ## Requirements
 
 - Windows 10 or Windows 11 x64
-- Rainmeter 4.0 or newer
+- Rainmeter 4.5.26 or newer
 - Prometheus with node_exporter on the target device
 
 ---
