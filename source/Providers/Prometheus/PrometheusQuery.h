@@ -22,11 +22,17 @@ namespace NASCP {
                 void SetEndpoint(const std::string& endpoint, bool proxy = false) override;
                 void SetDebug(void* rm, int debugLevel);
 
+                // Which Prometheus label Device= is matched against. node_exporter
+                // always carries "job"; "device" and friends only exist if the
+                // scrape config adds them.
+                void SetDeviceLabel(const std::string& label);
+
             private:
                 std::string endpoint_;
                 bool proxy_ = false;
                 void* rm_ = nullptr;
                 int debugLevel_ = 0;
+                std::string deviceLabel_ = "job";
 
                 std::map<Query::DataType, double> cache_;
                 std::wstring stringCache_;

@@ -9,7 +9,10 @@ namespace NASCP {
 
         class Builder {
         public:
-            static IQuery* GetOrCreate(const std::string& type, const std::string& normalizedEndpoint, bool proxy = false);
+            // One client per endpoint AND device: the client owns a value cache
+            // keyed only by metric, so sharing it between devices would make
+            // them overwrite each other's readings.
+            static IQuery* GetOrCreate(const std::string& type, const std::string& normalizedEndpoint, const std::string& device, bool proxy = false);
             static std::string NormalizeEndpoint(const std::string& device, const std::string& type, bool proxy = false);
             static void Shutdown();
 

@@ -11,6 +11,7 @@ namespace NASCP {
         Query::IQuery* query = nullptr;
         std::string url;
         std::string device;
+        std::string deviceLabel;
         std::string type;
         Query::DataType dataType;
         std::string customQuery;

@@ -85,11 +85,16 @@ void Reload(void* data, void* rm, double* maxValue) {
     measure->device = Str::ToLower(Str::Trim(Str::ToNarrow(RmReadString(rm, L"Device", L"", TRUE))));
     measure->type = Str::ToLower(Str::Trim(Str::ToNarrow(RmReadString(rm, L"Type", L"prometheus", TRUE))));
     measure->customQuery = Str::Trim(Str::ToNarrow(RmReadString(rm, L"Query", L"", TRUE)));
+    // Which Prometheus label Device= is matched against. "job" is the only one
+    // node_exporter is guaranteed to carry; anything else has to come from the
+    // scrape config.
+    measure->deviceLabel = Str::ToLower(Str::Trim(Str::ToNarrow(RmReadString(rm, L"DeviceLabel", L"job", TRUE))));
     std::string dataStr = Str::ToLower(Str::Trim(Str::ToNarrow(RmReadString(rm, L"Data", L"status", TRUE))));
 
     DEBUG_INFO(rm, measure->debugLevel,
         (L"URL=" + Str::ToWide(rawUrl) +
             L" Device=" + Str::ToWide(measure->device) +
+            L" DeviceLabel=" + Str::ToWide(measure->deviceLabel) +
             L" Type=" + Str::ToWide(measure->type) +
             L" Data=" + Str::ToWide(dataStr) +
             L" Query=" + Str::ToWide(measure->customQuery)).c_str());
@@ -109,11 +114,13 @@ void Reload(void* data, void* rm, double* maxValue) {
         DEBUG_INFO(rm, measure->debugLevel, L"Custom query override active");
     }
 
-    measure->query = NASCP::Query::Builder::GetOrCreate(measure->type, measure->url, measure->proxy);
+    measure->query = NASCP::Query::Builder::GetOrCreate(measure->type, measure->url, measure->device, measure->proxy);
 
     if (measure->query) {
-        if (auto* pq = dynamic_cast<NASCP::Providers::Prometheus::PrometheusQuery*>(measure->query))
+        if (auto* pq = dynamic_cast<NASCP::Providers::Prometheus::PrometheusQuery*>(measure->query)) {
             pq->SetDebug(rm, measure->debugLevel);
+            pq->SetDeviceLabel(measure->deviceLabel);
+        }
 
         DEBUG_INFO(rm, measure->debugLevel,
             (L"Client ready for endpoint: " + Str::ToWide(measure->url)).c_str());

@@ -12,8 +12,13 @@ namespace NASCP {
 
         std::unordered_map<std::string, std::unique_ptr<IQuery>> Builder::clients_;
 
-        IQuery* Builder::GetOrCreate(const std::string& type, const std::string& normalizedEndpoint, bool proxy) {
-            auto it = clients_.find(normalizedEndpoint);
+        IQuery* Builder::GetOrCreate(const std::string& type, const std::string& normalizedEndpoint, const std::string& device, bool proxy) {
+            // clients_ is static, so the key has to carry the device too -
+            // otherwise two skins reading different devices from the same
+            // Prometheus share one cache and overwrite each other.
+            const std::string key = normalizedEndpoint + "|" + device;
+
+            auto it = clients_.find(key);
             if (it != clients_.end())
                 return it->second.get();
 
@@ -25,8 +30,8 @@ namespace NASCP {
                 return nullptr;
 
             client->SetEndpoint(normalizedEndpoint, proxy);
-            clients_[normalizedEndpoint] = std::move(client);
-            return clients_[normalizedEndpoint].get();
+            clients_[key] = std::move(client);
+            return clients_[key].get();
         }
 
         std::string Builder::NormalizeEndpoint(const std::string& device, const std::string& type, bool proxy) {

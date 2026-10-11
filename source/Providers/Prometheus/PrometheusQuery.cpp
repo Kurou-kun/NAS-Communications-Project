@@ -31,6 +31,11 @@ namespace NASCP {
                 debugLevel_ = debugLevel;
             }
 
+            void PrometheusQuery::SetDeviceLabel(const std::string& label) {
+                if (!label.empty())
+                    deviceLabel_ = label;
+            }
+
             bool PrometheusQuery::IsAvailable() {
                 try {
                     HttpGet("/api/v1/query?query=up");
@@ -101,58 +106,65 @@ namespace NASCP {
                         }
                     }
 
+                    // node_exporter names the NIC/disk label "device" too. When the
+                    // scrape config adds its own "device" target label, Prometheus
+                    // keeps the target's and renames the metric's to
+                    // "exported_device" - so the interface filter has to follow it,
+                    // or it silently stops excluding lo/docker/veth.
+                    const std::string ifLabel = (deviceLabel_ == "device") ? "exported_device" : "device";
+
                     // ── CPU Usage ──────────────────────────────────────────────────────
                     std::string cpuUsageResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "100 - avg by (job) (rate(node_cpu_seconds_total{job=\"" + device + "\",mode=\"idle\"}[1m])) * 100"));
+                        "100 - avg by (" + deviceLabel_ + ") (rate(node_cpu_seconds_total{" + deviceLabel_ + "=\"" + device + "\",mode=\"idle\"}[1m])) * 100"));
 
                     // ── CPU Clock ──────────────────────────────────────────────────────
                     std::string cpuClockResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "avg by (job) (node_cpu_scaling_frequency_hertz{job=\"" + device + "\"})"));
+                        "avg by (" + deviceLabel_ + ") (node_cpu_scaling_frequency_hertz{" + deviceLabel_ + "=\"" + device + "\"})"));
 
                     // ── CPU Temp (AMD via PCI chip) ────────────────────────────────────
                     std::string cpuTempResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "avg(node_hwmon_temp_celsius{job=\"" + device + "\",chip=~\"coretemp.*|pci.*\",sensor=\"temp1\"})"));
+                        "avg(node_hwmon_temp_celsius{" + deviceLabel_ + "=\"" + device + "\",chip=~\"coretemp.*|pci.*\",sensor=\"temp1\"})"));
 
                     // ── Network ────────────────────────────────────────────────────────
                     std::string netDownloadResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "sum by (job) (rate(node_network_receive_bytes_total{job=\"" + device + "\",device!~\"lo|docker.*|veth.*|br.*|virbr.*\"}[1m]))"));
+                        "sum by (" + deviceLabel_ + ") (rate(node_network_receive_bytes_total{" + deviceLabel_ + "=\"" + device + "\"," + ifLabel + "!~\"lo|docker.*|veth.*|br.*|virbr.*\"}[1m]))"));
 
                     std::string netUploadResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "sum by (job) (rate(node_network_transmit_bytes_total{job=\"" + device + "\",device!~\"lo|docker.*|veth.*|br.*|virbr.*\"}[1m]))"));
+                        "sum by (" + deviceLabel_ + ") (rate(node_network_transmit_bytes_total{" + deviceLabel_ + "=\"" + device + "\"," + ifLabel + "!~\"lo|docker.*|veth.*|br.*|virbr.*\"}[1m]))"));
 
                     std::string netSpeedResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "max by (job) (node_network_speed_bytes{job=\"" + device + "\",device!~\"lo|docker.*|veth.*|br.*|virbr.*\"})"));
+                        "max by (" + deviceLabel_ + ") (node_network_speed_bytes{" + deviceLabel_ + "=\"" + device + "\"," + ifLabel + "!~\"lo|docker.*|veth.*|br.*|virbr.*\"})"));
 
                     std::string netDownTotalResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "sum by (job) (node_network_receive_bytes_total{job=\"" + device + "\",device!~\"lo|docker.*|veth.*|br.*|virbr.*\"})"));
+                        "sum by (" + deviceLabel_ + ") (node_network_receive_bytes_total{" + deviceLabel_ + "=\"" + device + "\"," + ifLabel + "!~\"lo|docker.*|veth.*|br.*|virbr.*\"})"));
 
                     std::string netUpTotalResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "sum by (job) (node_network_transmit_bytes_total{job=\"" + device + "\",device!~\"lo|docker.*|veth.*|br.*|virbr.*\"})"));
+                        "sum by (" + deviceLabel_ + ") (node_network_transmit_bytes_total{" + deviceLabel_ + "=\"" + device + "\"," + ifLabel + "!~\"lo|docker.*|veth.*|br.*|virbr.*\"})"));
 
                     // ── Drive (/ only) ─────────────────────────────────────────────────
                     std::string driveUsedPercentResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "(1 - node_filesystem_avail_bytes{job=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{job=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}) * 100"));
+                        "(1 - node_filesystem_avail_bytes{" + deviceLabel_ + "=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{" + deviceLabel_ + "=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}) * 100"));
 
                     std::string driveUsedResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "node_filesystem_size_bytes{job=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"} - node_filesystem_avail_bytes{job=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}"));
+                        "node_filesystem_size_bytes{" + deviceLabel_ + "=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"} - node_filesystem_avail_bytes{" + deviceLabel_ + "=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}"));
 
                     std::string driveTotalResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "node_filesystem_size_bytes{job=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}"));
+                        "node_filesystem_size_bytes{" + deviceLabel_ + "=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}"));
 
                     std::string driveFreeResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "node_filesystem_avail_bytes{job=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}"));
+                        "node_filesystem_avail_bytes{" + deviceLabel_ + "=\"" + device + "\",mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}"));
 
                     std::string driveReadSpeedResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "sum by (job) (rate(node_disk_read_bytes_total{job=\"" + device + "\"}[1m]))"));
+                        "sum by (" + deviceLabel_ + ") (rate(node_disk_read_bytes_total{" + deviceLabel_ + "=\"" + device + "\"}[1m]))"));
 
                     std::string driveWriteSpeedResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "sum by (job) (rate(node_disk_written_bytes_total{job=\"" + device + "\"}[1m]))"));
+                        "sum by (" + deviceLabel_ + ") (rate(node_disk_written_bytes_total{" + deviceLabel_ + "=\"" + device + "\"}[1m]))"));
 
                     std::string driveReadResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "sum by (job) (node_disk_read_bytes_total{job=\"" + device + "\"})"));
+                        "sum by (" + deviceLabel_ + ") (node_disk_read_bytes_total{" + deviceLabel_ + "=\"" + device + "\"})"));
 
                     std::string driveWriteResponse = HttpGet("/api/v1/query?query=" + UrlEncode(
-                        "sum by (job) (node_disk_written_bytes_total{job=\"" + device + "\"})"));
+                        "sum by (" + deviceLabel_ + ") (node_disk_written_bytes_total{" + deviceLabel_ + "=\"" + device + "\"})"));
 
                     // ── Store all results ──────────────────────────────────────────────
                     {
@@ -190,7 +202,7 @@ namespace NASCP {
             }
 
             std::string PrometheusQuery::BuildRawQuery(const std::string& device) const {
-                return "{job=\"" + device + "\",__name__=~\"up|node_memory_MemAvailable_bytes|node_memory_MemTotal_bytes|node_memory_SwapTotal_bytes|node_memory_SwapFree_bytes|node_boot_time_seconds|node_load1\"}";
+                return "{" + deviceLabel_ + "=\"" + device + "\",__name__=~\"up|node_memory_MemAvailable_bytes|node_memory_MemTotal_bytes|node_memory_SwapTotal_bytes|node_memory_SwapFree_bytes|node_boot_time_seconds|node_load1\"}";
             }
 
             void PrometheusQuery::ParseRawResponse(const std::string& json, const std::string& device) {
@@ -221,8 +233,18 @@ namespace NASCP {
 
                     if (name == "up")
                         cache_[Query::DataType::Status] = value;
-                    else if (name == "node_memory_MemAvailable_bytes")
+                    else if (name == "node_memory_MemAvailable_bytes") {
                         cache_[Query::DataType::RAM_Free] = value;
+                        // Results arrive in whatever order Prometheus sends them,
+                        // so recompute here too rather than relying on MemTotal
+                        // landing second (the swap branches below do the same).
+                        double total = cache_.count(Query::DataType::RAM_Total) ? cache_[Query::DataType::RAM_Total] : 0.0;
+                        if (total > 0) {
+                            double used = total - value;
+                            cache_[Query::DataType::RAM_Used] = used;
+                            cache_[Query::DataType::RAM_Percent] = (used / total) * 100.0;
+                        }
+                    }
                     else if (name == "node_memory_MemTotal_bytes") {
                         cache_[Query::DataType::RAM_Total] = value;
                         double free = cache_.count(Query::DataType::RAM_Free) ? cache_[Query::DataType::RAM_Free] : 0.0;
